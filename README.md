@@ -1,10 +1,10 @@
 # Matrix Multiplication Kernel (Before/After)
 
-I built and profiled a CUDA matrix multiplication kernel, starting from a naive baseline and optimizing it with shared memory tiling. This project documents the full diagnostic process: identifying why the naive version was slow, applying a specific fix, and proving the improvement with real profiling data rather than just claiming it worked.
+I built and profiled a CUDA matrix multiplication kernel, starting from a naive baseline and optimizing it with shared memory tiling. This project documents the full diagnostic process: identifying why the naive version was slow, applying a specific fix, and proving the improvement with real profiling data instead of just claiming it worked.
 
 ## Project Structure / Architecture
 
-I developed this in Visual Studio Code with CUDA Toolkit installed under WSL2 Ubuntu. My diagnostic pipeline followed this order:
+I developed this in Visual Studio Code with the CUDA Toolkit installed under WSL2 Ubuntu. My diagnostic pipeline followed this order:
 
 ```
 CUDA kernel (VS Code)
@@ -13,39 +13,48 @@ CUDA kernel (VS Code)
 Nsight Systems     (timeline view, finds where time goes across the whole run)
        |
        v
-Nsight Compute     (kernel-level detail, finds why a specific kernel is slow)
+Nsight Compute     (kernel level detail, finds why a specific kernel is slow)
 ```
 
-I used Nsight Systems first to confirm the matmul kernel was the dominant cost in the run and to check for gaps or overhead around the launch. I then used Nsight Compute to look inside the kernel itself, at the roofline position, memory throughput, and warp behavior.
+I used Nsight Systems first to confirm the matmul kernel was the dominant cost in the run and to check the sequence of CUDA API calls around the launch. I then used Nsight Compute to look inside the kernel itself, at throughput, the roofline position, and memory access behavior.
 
 ## Methodology
 
 I started with a naive matmul kernel, where each thread computes one output element by looping over the shared dimension and reading directly from global memory on every iteration. I profiled this baseline with Nsight Systems and Nsight Compute to establish where its performance limits actually came from.
 
-Based on that profile, I rewrote the kernel using shared memory tiling. Threads within a block cooperatively load a tile of each input matrix into shared memory once, then reuse that data for their computations instead of each thread independently re-fetching the same values from global memory repeatedly. I then re-ran the same profiling pass on the tiled version to measure the actual difference.
+Based on that profile, I rewrote the kernel using shared memory tiling. Threads within a block cooperatively load a tile of each input matrix into shared memory once, then reuse that data for their computations instead of each thread independently re-fetching the same values from global memory repeatedly. I re-ran the same profiling pass on the tiled version to measure the actual difference.
 
 Both versions were verified for correctness against an independent CPU implementation before any performance comparison was made.
 
+One methodology note worth stating directly: my first look at Nsight Systems showed the tiled kernel's `cudaLaunchKernel` duration at roughly 209 ms, far higher than the naive kernel's 3.9 ms. Expanding that event revealed the difference was almost entirely one time JIT compilation of the more complex tiled kernel, not execution time. Nsight Systems measures host side API duration, which includes that first call compilation cost. Nsight Compute measures kernel execution directly on the device, which is unaffected by JIT compilation. All performance comparisons below use Nsight Compute's Duration metric for this reason.
+
 ## Results / Evidence
 
-<!-- Add screenshots here once profiling is complete -->
+- Nsight Systems events, naive kernel: `assets/naive_nsight_profile.png`
+- Nsight Systems events, tiled kernel: `assets/tiled_nsight_profile.png`
+- Nsight Compute summary, naive kernel: `assets/naive_compute_profile.png`
+- Nsight Compute summary, tiled kernel: `assets/tiled_compute_profile.png`
+- GPU throughput comparison, naive kernel: `assets/naive_compute_barplot.png`
+- GPU throughput comparison, tiled kernel: `assets/tiled_compute_barplot.png`
+- Roofline chart, naive kernel: `assets/naive_compute_roofline.png`
+- Roofline chart, tiled kernel: `assets/tiled_compute_roofline.png`
 
-- Nsight Systems timeline, naive kernel: `assets/nsight-systems-naive.png`
-- Nsight Systems timeline, tiled kernel: `assets/nsight-systems-tiled.png`
-- Nsight Compute roofline, naive kernel: `assets/nsight-compute-roofline-naive.png`
-- Nsight Compute roofline, tiled kernel: `assets/nsight-compute-roofline-tiled.png`
-- DCGM dashboard during naive kernel run: `assets/dcgm-naive.png`
-- DCGM dashboard during tiled kernel run: `assets/dcgm-tiled.png`
+| Metric | Naive | Tiled |
+|---|---|---|
+| Duration | 5.10 ms | 1.32 ms |
+| Compute (SM) Throughput | 45.46% | 82.13% |
+| Memory Throughput | 87.11% | 82.13% |
+| L2 Cache Throughput | 87.11% | 10.31% |
 
-Each screenshot is paired with the specific metric it demonstrates rather than included as a standalone image.
+Overall speedup: 3.86x.
 
 ## Key Findings
 
-The naive kernel was memory bound. Every iteration of its inner loop reads directly from global memory, and neighboring threads in the same block were reading largely overlapping data without sharing any of it. This showed up in Nsight Compute as high memory throughput relative to compute throughput, with the kernel sitting to the left of the roofline's ridge point.
+The naive kernel was memory bound. Nsight Compute flagged this directly under Memory Workload Analysis: its L1TEX Global Load Access Pattern check found that only 26.4 of the 32 bytes transmitted per memory sector were actually used by each thread, meaning the naive kernel's global memory reads were uncoalesced. Every iteration of its inner loop reads directly from global memory, and neighboring threads in the same block were reading largely overlapping data without sharing any of it.
 
-The tiled kernel performs the same total amount of arithmetic. What changes is how often it touches global memory. By having each thread contribute one value to a shared tile, then having the whole block reuse that tile for multiple computations, global memory traffic dropped substantially. The re-profiled kernel showed [insert measured shift in compute vs memory throughput, and runtime improvement, once profiling is complete].
+The tiled kernel performs the same total amount of arithmetic. What changes is how often it touches global memory. By having each thread contribute one value to a shared tile, then having the whole block reuse that tile for multiple computations, global memory traffic dropped substantially. Compute throughput rose from 45.46% to 82.13%, and L2 cache throughput fell from 87.11% to 10.31%, which is the direct signature of traffic that used to hit global memory now being served from fast on chip shared memory instead. Kernel duration dropped from 5.10 ms to 1.32 ms, a 3.86x speedup.
 
-Correlating this with my DCGM dashboard, the GPU's utilization and power signature during the tiled run looked different from the naive run, consistent with the workload becoming less bottlenecked by memory stalls.
+One note on the roofline charts: both kernels operate on integer data, not floating point, which is why the standard Floating Point Operations Roofline reports 0% of fp32 and fp64 peak performance in the summary text. The plotted points still reflect real achieved performance and arithmetic intensity for this workload, just outside the model's usual floating point framing.
 
 <details>
 <summary>A plainer language explanation of what changed</summary>
@@ -74,26 +83,29 @@ Requirements:
 - Nsight Systems and Nsight Compute installed
 
 ```bash
-git clone https://github.com/Dre1896/matmul-kernel-optimization.git
-cd matmul-kernel-optimization
-nvcc baseline_matmul.cu -o baseline_matmul
+git clone https://github.com/Dre1896/Matrix-Multiplication-Kernel.git
+cd Matrix-Multiplication-Kernel
+nvcc mmul.cu -o mmul
 nvcc tiled_matmul.cu -o tiled_matmul
 ```
 
 To profile either version:
 
 ```bash
-nsys profile ./baseline_matmul
-ncu ./baseline_matmul
+nsys profile -o naive_systems ./mmul
+ncu -o naive_compute --set full ./mmul
+
+nsys profile -o tiled_systems ./tiled_matmul
+ncu -o tiled_compute --set full ./tiled_matmul
 ```
 
-Swap in `tiled_matmul` to profile the optimized version the same way.
+Open the resulting `.nsys-rep` files in Nsight Systems and `.ncu-rep` files in Nsight Compute to view the full reports. Raw report files are not included in this repository, this repo includes exported screenshots and summarized findings for readability. Raw reports are available on request.
 
 ## Next Steps
 
-- Extend the tiling approach with register blocking to see if a second optimization pass yields further gains
-- Apply the same DCGM, Nsight Systems, and Nsight Compute diagnostic chain to a different kernel to confirm the process generalizes beyond matrix multiplication
-- Compare this hand written CUDA approach against an OpenACC directive based version of the same kernel
+- Address shared memory bank conflicts in the tiled kernel. Nsight Compute flagged a 1.3-way bank conflict across shared store requests, costing an estimated 22.72% of shared store wavefronts, with roughly 19.59% further speedup available. This is most commonly fixed by padding the shared memory tile dimensions to avoid bank alignment collisions.
+- Apply the same DCGM, Nsight Systems, and Nsight Compute diagnostic chain to a different kernel to confirm the process generalizes beyond matrix multiplication.
+- Compare this hand written CUDA approach against an OpenACC directive based version of the same kernel.
 
 ## Acknowledgments
 
