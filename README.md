@@ -30,7 +30,7 @@ One methodology note worth stating directly: my first look at Nsight Systems sho
 
 ## Results / Evidence
 
-- Nsight Systems events, naive kernel: `assets/naive_nsight_profile.png`
+- Nsight Systems events, naive kernel: assets/naive_nsight_profile.png
 - Nsight Systems events, tiled kernel: `assets/tiled_nsight_profile.png`
 - Nsight Compute summary, naive kernel: `assets/naive_compute_profile.png`
 - Nsight Compute summary, tiled kernel: `assets/tiled_compute_profile.png`
