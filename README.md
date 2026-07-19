@@ -15,15 +15,7 @@ I built and profiled a CUDA matrix multiplication kernel, starting from a naive 
 
 I developed this in Visual Studio Code with the CUDA Toolkit installed under WSL2 Ubuntu. My diagnostic pipeline followed this order:
 
-```
-CUDA kernel (VS Code)
-       |
-       v
-Nsight Systems     (timeline view, finds where time goes across the whole run)
-       |
-       v
-Nsight Compute     (kernel level detail, finds why a specific kernel is slow)
-```
+![CUDA kernel diagnosed with Nsight Systems then Nsight Compute](assets/architecture_diagram.png)
 
 I used Nsight Systems first to confirm the matmul kernel was the dominant cost in the run and to check the sequence of CUDA API calls around the launch. I then used Nsight Compute to look inside the kernel itself, at throughput, the roofline position, and memory access behavior.
 
