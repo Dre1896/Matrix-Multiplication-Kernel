@@ -2,6 +2,12 @@
 
 I built and profiled a CUDA matrix multiplication kernel, starting from a naive baseline and optimizing it with shared memory tiling. This project documents the full diagnostic process: identifying why the naive version was slow, applying a specific fix, and proving the improvement with real profiling data instead of just claiming it worked.
 
+**Result: 5.10 ms to 1.32 ms, a 3.86x speedup, driven by moving the kernel from memory bound to compute bound.**
+
+| Naive | Tiled |
+|---|---|
+| ![Naive kernel GPU throughput, memory bound at 87% memory vs 45% compute](assets/naive_compute_barplot.png) | ![Tiled kernel GPU throughput, compute bound at 82% compute and 82% memory](assets/tiled_compute_barplot.png) |
+
 ## Project Structure / Architecture
 
 I developed this in Visual Studio Code with the CUDA Toolkit installed under WSL2 Ubuntu. My diagnostic pipeline followed this order:
@@ -26,18 +32,29 @@ Based on that profile, I rewrote the kernel using shared memory tiling. Threads 
 
 Both versions were verified for correctness against an independent CPU implementation before any performance comparison was made.
 
-One methodology note worth stating directly: my first look at Nsight Systems showed the tiled kernel's `cudaLaunchKernel` duration at roughly 209 ms, far higher than the naive kernel's 3.9 ms. Expanding that event revealed the difference was almost entirely one time JIT compilation of the more complex tiled kernel, not execution time. Nsight Systems measures host side API duration, which includes that first call compilation cost. Nsight Compute measures kernel execution directly on the device, which is unaffected by JIT compilation. All performance comparisons below use Nsight Compute's Duration metric for this reason.
+One methodology note worth stating directly: my first look at Nsight Systems showed the tiled kernel's `cudaLaunchKernel` duration at roughly 209 ms, far higher than the naive kernel's 3.9 ms. Expanding that event revealed the difference was almost entirely one time JIT compilation of the more complex tiled kernel, not execution time. Nsight Systems measures host side API duration, which includes that first call compilation cost. Nsight Compute measures kernel execution directly on the device, which is unaffected by JIT compilation. All performance comparisons in this README use Nsight Compute's Duration metric for this reason.
 
 ## Results / Evidence
 
-- Nsight Systems events, naive kernel: assets/naive_nsight_profile.png
-- Nsight Systems events, tiled kernel: `assets/tiled_nsight_profile.png`
-- Nsight Compute summary, naive kernel: `assets/naive_compute_profile.png`
-- Nsight Compute summary, tiled kernel: `assets/tiled_compute_profile.png`
-- GPU throughput comparison, naive kernel: `assets/naive_compute_barplot.png`
-- GPU throughput comparison, tiled kernel: `assets/tiled_compute_barplot.png`
-- Roofline chart, naive kernel: `assets/naive_compute_roofline.png`
-- Roofline chart, tiled kernel: `assets/tiled_compute_roofline.png`
+### Nsight Systems: CUDA API event sequence
+
+| Naive | Tiled |
+|---|---|
+| ![Naive kernel Nsight Systems events view](assets/naive_nsight_profile.png) | ![Tiled kernel Nsight Systems events view](assets/tiled_nsight_profile.png) |
+
+### Nsight Compute: summary and throughput
+
+| Naive | Tiled |
+|---|---|
+| ![Naive kernel Nsight Compute summary](assets/naive_compute_profile.png) | ![Tiled kernel Nsight Compute summary](assets/tiled_compute_profile.png) |
+
+### Nsight Compute: roofline
+
+| Naive | Tiled |
+|---|---|
+| ![Naive kernel roofline chart](assets/naive_compute_roofline.png) | ![Tiled kernel roofline chart](assets/tiled_compute_roofline.png) |
+
+### Summary table
 
 | Metric | Naive | Tiled |
 |---|---|---|
@@ -45,8 +62,6 @@ One methodology note worth stating directly: my first look at Nsight Systems sho
 | Compute (SM) Throughput | 45.46% | 82.13% |
 | Memory Throughput | 87.11% | 82.13% |
 | L2 Cache Throughput | 87.11% | 10.31% |
-
-Overall speedup: 3.86x.
 
 ## Key Findings
 
