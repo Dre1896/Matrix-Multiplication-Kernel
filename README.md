@@ -1,4 +1,7 @@
 # Matrix Multiplication Kernel (Before/After)
+<h1 align="center">
+<img src="assets/banner.png">
+</h1> 
 
 I built and profiled a CUDA matrix multiplication kernel, starting from a naive baseline and optimizing it with shared memory tiling. This project documents the full diagnostic process: identifying why the naive version was slow, applying a specific fix, and proving the improvement with real profiling data instead of just claiming it worked.
 
