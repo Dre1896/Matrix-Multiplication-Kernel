@@ -9,7 +9,7 @@ I built and profiled a CUDA matrix multiplication kernel, starting from a naive 
 
 | Naive | Tiled |
 |---|---|
-| ![Naive kernel GPU throughput, memory bound at 87% memory vs 45% compute](assets/naive_compute_barplot.png) | ![Tiled kernel GPU throughput, compute bound at 82% compute and 82% memory](assets/tiled_compute_barplot.png) |
+| ![Naive kernel Nsight Systems events view](assets/naive_systems_profile.png) | ![Tiled kernel Nsight Systems events view](assets/tiled_systems_profile.png) |
 
 ## Project Structure / Architecture
 
